@@ -30,12 +30,12 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Ensure terraform.tfstate Key Exists
-        if: ${{ env.tfstate_kv != '' }}
+      - name: Ensure Initial Terraform State
         run: |
-          npx wrangler kv:key put terraform.tfstate '{}' --namespace-id=${{ env.tfstate_kv }} || echo "Key already exists"
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          if ! npx wrangler kv:key get --namespace-id=${{ env.tfstate_kv }} terraform.tfstate > /dev/null 2>&1; then
+            echo '{"version": 4, "terraform_version": "1.5.0", "serial": 0, "lineage": "00000000-0000-0000-0000-000000000000", "outputs": {}, "resources": []}' > ./.terraform/initial.tfstate
+            npx wrangler kv:key put --namespace-id=${{ env.tfstate_kv }} terraform.tfstate --path=./.terraform/initial.tfstate
+          fi
 
       - name: Init Terraform
         run: terraform init
@@ -45,11 +45,10 @@ jobs:
         uses: cloudflare/wrangler-action@v3.13.0
         with:
           command: --version
-          preCommands: npx wrangler kv:key get --namespace-id=${{ env.tfstate_kv }} terraform.tfstate > ./.terraform/terraform.tfstate || echo "{}" > ./.terraform/terraform.tfstate
+          preCommands: npx wrangler kv:key get --namespace-id=${{ env.tfstate_kv }} terraform.tfstate > ./.terraform/terraform.tfstate
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           postCommands: chmod 777 ./.terraform/terraform.tfstate
-        if: ${{ env.tfstate_kv != '' }}
 
       - name: Configure Infrastructure with Terraform
         run: terraform plan && terraform apply -auto-approve
@@ -65,68 +64,4 @@ jobs:
           command: kv:key put --namespace-id=${{ env.tfstate_kv }} terraform.tfstate --path=./.terraform/terraform.tfstate
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-  app:
-    runs-on: ubuntu-latest
-    name: Application Deployment
-    needs: infra
-    steps:
-      - name: Checkout Codebase
-        uses: actions/checkout@v4
-
-      - name: Use Node.js LTS Version
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: npm
-
-      - name: Install NPM Packages
-        run: npm ci
-
-      - name: Build Application Pages
-        run: npm run build
-
-      - name: Publish to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3.13.0
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy build/client --branch=${{ github.head_ref || github.ref_name }} --project-name=dispoflare
-
-      - name: Check for Sentry Availability
-        id: sentry-check
-        shell: bash
-        run: |
-          if [ "${{ secrets.SENTRY_DSN }}" != '' ]; then
-            echo "sentry=true" >> $GITHUB_OUTPUT;
-          else
-            echo "sentry=false" >> $GITHUB_OUTPUT;
-          fi
-
-      # Optional Sentry Setup (Commented Out)
-      # - name: Setup Sentry Integration (Optional)
-      #   if: ${{ steps.sentry-check.outputs.sentry == 'true' }}
-      #   uses: cloudflare/wrangler-action@v3.13.0
-      #   with:
-      #     apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      #     accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      #     command: --version
-
-      - name: Publish to Cloudflare Workers (Optional)
-        uses: cloudflare/wrangler-action@v3.13.0
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Setup Cloudflare Workers Secrets (Optional)
-        run: |
-          echo "$CLOUDFLARE_API_TOKEN" | npx wrangler secret put CLOUDFLARE_API_TOKEN;
-          echo "$CLOUDFLARE_ACCOUNT_ID" | npx wrangler secret put CLOUDFLARE_ACCOUNT_ID;
-          if [ "${{ secrets.SENTRY_DSN }}" != '' ]; then 
-            echo "$SENTRY_DSN" | npx wrangler secret put SENTRY_DSN; 
-          fi;
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
