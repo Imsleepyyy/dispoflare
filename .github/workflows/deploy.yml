@@ -47,7 +47,7 @@ jobs:
         uses: cloudflare/wrangler-action@v3.13.0
         with:
           command: --version
-          preCommands: npx wrangler kv:key get --namespace-id=${{ env.tfstate_kv }} terraform.tfstate > ./.terraform/terraform.tfstate || echo "{}" > ./.terraform/terraform.tfstate
+          preCommands: npx wrangler kv:key get --namespace-id=${{ env.tfstate_kv }} terraform.tfstate > ./.terraform/terraform.tfstate || echo '{"version": 4, "terraform_version": "1.5.0", "serial": 0, "lineage": "00000000-0000-0000-0000-000000000000", "outputs": {}, "resources": []}' > ./.terraform/terraform.tfstate
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           postCommands: chmod 777 ./.terraform/terraform.tfstate
